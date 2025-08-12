@@ -42,5 +42,4 @@ func main() {
 	http.ListenAndServe(":8080", enableCORS(mux))
 }
 
-
 // agora as rotas e handlers estão em arquivos separados

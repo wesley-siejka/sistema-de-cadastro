@@ -1,5 +1,5 @@
-
 package main
+
 import "github.com/klassmann/cpfcnpj"
 
 func normalizarCPF(cpf string) string {
@@ -14,5 +14,5 @@ func normalizarCPF(cpf string) string {
 
 func validarCPF(cpf string) bool {
 	c := cpfcnpj.NewCPF(cpf)
-	return c.IsValid()
+	return (&c).IsValid()
 }
