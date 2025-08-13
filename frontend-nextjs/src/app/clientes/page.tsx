@@ -1,9 +1,52 @@
 "use client";
 import { useState, useEffect } from "react";
+
 import { IMaskInput } from 'react-imask';
 import { cpf as cpfValidator } from 'cpf-cnpj-validator';
 
+// Função para formatar CPF com pontos e traço
+function formatarCPF(valor: string) {
+	const v = valor.replace(/\D/g, "").slice(0, 11);
+	return v.replace(/(\d{3})(\d)/, "$1.$2")
+					.replace(/(\d{3})(\d)/, "$1.$2")
+					.replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+}
+
 export default function ClientesPage() {
+	const [feedbackVisible, setFeedbackVisible] = useState(false);
+	const [feedbackMsg, setFeedbackMsg] = useState("");
+	const [feedbackType, setFeedbackType] = useState<"success"|"error"|"">("");
+	// Feedback message auto-hide
+	useEffect(() => {
+		if (feedbackMsg) {
+			setFeedbackVisible(true);
+			const fadeTimer = setTimeout(() => {
+				setFeedbackVisible(false);
+			}, 3000);
+			const removeTimer = setTimeout(() => {
+				setFeedbackMsg("");
+				setFeedbackType("");
+			}, 4000);
+			return () => {
+				clearTimeout(fadeTimer);
+				clearTimeout(removeTimer);
+			};
+		}
+	}, [feedbackMsg]);
+	// Função para limpar o formulário de cliente
+	const limparFormCliente = () => {
+		setNome("");
+		setCpf("");
+		setCep("");
+		setNumero("");
+		setTelefone("");
+		setEmail("");
+		setCidade("");
+		setBairro("");
+		setErros({});
+		setEditClienteId(null);
+	};
+ const [editClienteId, setEditClienteId] = useState<number | null>(null);
 	const [showModal, setShowModal] = useState(false);
 	const [nome, setNome] = useState("");
 	const [cpf, setCpf] = useState("");
@@ -13,12 +56,23 @@ export default function ClientesPage() {
 	const [email, setEmail] = useState("");
 	const [cidade, setCidade] = useState("");
 	const [bairro, setBairro] = useState("");
-	const [erros, setErros] = useState<{ [key: string]: string }>({});
+		const [erros, setErros] = useState<{ [key: string]: string }>({});
+				// ...existing code...
 	const [clientes, setClientes] = useState<any[]>([]);
 	const [filtro, setFiltro] = useState("");
 	const [showFilterMenu, setShowFilterMenu] = useState(false);
 	const [ordemCampo, setOrdemCampo] = useState<"nome" | "created_at">("created_at");
 	const [ordemDirecao, setOrdemDirecao] = useState<"asc" | "desc">("desc");
+
+	// Estilo global para placeholders
+	const placeholderStyle = (
+		<style>{`
+			input::placeholder, textarea::placeholder {
+				color: #6B7280 !important; /* gray-500 do Tailwind, não muito claro */
+				opacity: 1;
+			}
+		`}</style>
+	);
 
 	async function fetchClientes() {
 		try {
@@ -92,36 +146,90 @@ export default function ClientesPage() {
 	}
 
 	function handleSubmit(e: React.FormEvent) {
-		e.preventDefault();
-		const novosErros = validarCampos();
-		setErros(novosErros);
-		if (Object.keys(novosErros).length > 0) return;
-		// Enviar dados para o backend
-		fetch("http://localhost:8080/api/clientes", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ nome, cpf, cep, numero, bairro, cidade, telefone, email })
-		})
-			.then(res => res.json())
-			.then(() => {
-				fetchClientes();
-				setNome("");
-				setCpf("");
-				setCep("");
-				setNumero("");
-				setTelefone("");
-				setEmail("");
-				setCidade("");
-				setBairro("");
-				setErros({});
-				setShowModal(false);
-			});
+		 e.preventDefault();
+		 const novosErros = validarCampos();
+		 setErros(novosErros);
+		 if (Object.keys(novosErros).length > 0) return;
+		 const cpfFormatado = formatarCPF(cpf);
+		if (editClienteId === null) {
+			// Cadastro novo
+			fetch("http://localhost:8080/api/clientes", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ nome, cpf: cpfFormatado, cep, numero, bairro, cidade, telefone, email })
+			})
+				.then(async res => {
+					const data = await res.json();
+					if (!res.ok) {
+						if (data.error && data.error.includes("CPF já cadastrado")) {
+							setErros({ cpf: "Este CPF já está cadastrado." });
+							return;
+						}
+						setErros({ geral: data.error || "Erro ao cadastrar cliente." });
+						return;
+					}
+					fetchClientes();
+					limparFormCliente();
+					setShowModal(false);
+					// Não mostrar mensagem de sucesso para cadastro novo
+				});
+		} else {
+			// Alteração
+			fetch(`http://localhost:8080/api/clientes/${editClienteId}`, {
+				method: "PUT",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ nome, cpf: cpfFormatado, cep, numero, bairro, cidade, telefone, email })
+			})
+				.then(async res => {
+					let data = {};
+					const text = await res.text();
+					if (text) {
+						try { data = JSON.parse(text); } catch {}
+					}
+					if (!res.ok) {
+						setErros({ geral: ((data as any).error) || "Erro ao alterar cliente." });
+						setShowModal(false);
+						setFeedbackMsg(((data as any).error) || "Erro ao alterar cliente.");
+						setFeedbackType("error");
+						return;
+					}
+					fetchClientes();
+					limparFormCliente();
+					setShowModal(false);
+					setFeedbackMsg("Cliente alterado com sucesso!");
+					setFeedbackType("success");
+				});
+		}
+ const limparFormCliente = () => {
+  setNome("");
+  setCpf("");
+  setCep("");
+  setNumero("");
+  setTelefone("");
+  setEmail("");
+  setCidade("");
+  setBairro("");
+  setErros({});
+  setEditClienteId(null);
+ };
 	}
 
+
+	const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
 	async function excluirCliente(id: number) {
-		if (!window.confirm("Tem certeza que deseja excluir este cliente?")) return;
-		await fetch(`http://localhost:8080/api/clientes/${id}`, { method: "DELETE" });
-		setClientes(clientes.filter(c => c.id !== id));
+		setConfirmDeleteId(id);
+	}
+
+	async function confirmarExclusao() {
+		if (confirmDeleteId === null) return;
+		await fetch(`http://localhost:8080/api/clientes/${confirmDeleteId}`, { method: "DELETE" });
+		setClientes(clientes.filter(c => c.id !== confirmDeleteId));
+		setConfirmDeleteId(null);
+	}
+
+	function cancelarExclusao() {
+		setConfirmDeleteId(null);
 	}
 
 	// Ordenação e filtro aplicados à lista de clientes
@@ -145,8 +253,20 @@ export default function ClientesPage() {
 			return 0;
 		});
 
-	return (
-		<div className="relative min-h-screen flex flex-col items-center bg-gray-100 pt-6">
+		return (
+					<>
+							{feedbackMsg && (
+								<div
+									className={`fixed top-8 left-1/2 transform -translate-x-1/2 z-50 px-6 py-3 rounded-lg shadow-lg font-bold text-center transition-all duration-1000
+										${feedbackType === "success" ? "bg-green-100 border border-green-400 text-green-700" : "bg-red-100 border border-red-400 text-red-700"}
+										${feedbackVisible ? "opacity-100" : "opacity-0"}`}
+									style={{ minWidth: 280 }}>
+									{feedbackMsg}
+									<button className="ml-4 text-xs text-gray-500 hover:text-gray-700 font-bold" onClick={() => { setFeedbackMsg(""); setFeedbackType(""); setFeedbackVisible(false); }}>×</button>
+								</div>
+							)}
+				{placeholderStyle}
+				<div className="relative min-h-screen flex flex-col items-center bg-gray-100 pt-6">
 			{clientes.length === 0 ? (
 				<div className="bg-white rounded-lg shadow-lg p-10 max-w-xl w-full flex flex-col items-center mt-0">
 					<h1 className="text-2xl font-bold mb-4 text-gray-800">Clientes</h1>
@@ -214,45 +334,72 @@ export default function ClientesPage() {
 					</div>
 					<div className="grid grid-cols-1 gap-3">
 						{clientesFiltrados.map((c) => (
-							<div key={c.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-row items-center w-full max-w-full px-6 py-4 mx-auto min-h-[80px]">
-								<div className="flex flex-col flex-1 justify-center">
-									<div className="flex flex-wrap gap-x-6 gap-y-1 items-center mb-1">
-										<span className="font-bold text-black text-lg whitespace-nowrap">{c.nome}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>CPF:</b> {c.cpf}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>Telefone:</b> {c.telefone}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>E-mail:</b> {c.email}</span>
-									</div>
-									<div className="flex flex-wrap gap-x-6 gap-y-1 items-center">
-										<span className="text-black text-sm whitespace-nowrap"><b>CEP:</b> {c.cep}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>Cidade:</b> {c.cidade}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>Bairro:</b> {c.bairro}</span>
-										<span className="text-black text-sm whitespace-nowrap"><b>Número:</b> {c.numero}</span>
-										<span className="text-black text-xs whitespace-nowrap"><b>Cadastrado em:</b> {c.created_at ? new Date(c.created_at).toLocaleDateString() : ""}</span>
-									</div>
-								</div>
-								<button onClick={() => excluirCliente(c.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-xs font-bold ml-2 self-start">Excluir</button>
-							</div>
+							 <div key={c.id} className="bg-white rounded-lg shadow-md border border-gray-200 flex flex-row items-center w-full max-w-full px-6 py-4 mx-auto min-h-[80px]">
+								 <div className="flex flex-col flex-1 justify-center">
+									 <div className="flex flex-wrap gap-x-6 gap-y-1 items-center mb-1">
+										 <span className="font-bold text-black text-lg whitespace-nowrap">{c.nome}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>CPF:</b> {formatarCPF(c.cpf)}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>Telefone:</b> {c.telefone}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>E-mail:</b> {c.email}</span>
+									 </div>
+									 <div className="flex flex-wrap gap-x-6 gap-y-1 items-center">
+										 <span className="text-black text-sm whitespace-nowrap"><b>CEP:</b> {c.cep}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>Cidade:</b> {c.cidade}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>Bairro:</b> {c.bairro}</span>
+										 <span className="text-black text-sm whitespace-nowrap"><b>Número:</b> {c.numero}</span>
+										 <span className="text-black text-xs whitespace-nowrap"><b>Cadastrado em:</b> {c.created_at ? new Date(c.created_at).toLocaleDateString() : ""}</span>
+									 </div>
+								 </div>
+								 <div className="flex flex-col items-center justify-center gap-2 ml-4">
+									 <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1 rounded text-sm font-bold mb-1" onClick={() => {
+										 setEditClienteId(c.id);
+										 setNome(c.nome || "");
+										 setCpf(c.cpf || "");
+										 setCep(c.cep || "");
+										 setNumero(c.numero || "");
+										 setTelefone(c.telefone || "");
+										 setEmail(c.email || "");
+										 setCidade(c.cidade || "");
+										 setBairro(c.bairro || "");
+										 setShowModal(true);
+									 }}>Alterar</button>
+									 <button onClick={() => excluirCliente(c.id)} className="bg-red-600 hover:bg-red-700 text-white px-4 py-1 rounded text-sm font-bold">Excluir</button>
+								 </div>
+							 </div>
 						))}
 					</div>
 				</div>
 			)}
-			{/* Modal de cadastro com fundo desfocado */}
-			{showModal && (
+			{/* Modal de confirmação de exclusão */}
+			{confirmDeleteId !== null && (
 				<div className="fixed inset-0 z-50 flex items-center justify-center">
-					{/* Fundo desfocado */}
-					<div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setShowModal(false)} />
-					{/* Formulário centralizado */}
-					<div className="relative bg-white rounded-lg shadow-2xl px-10 py-6 w-full max-w-xl mx-4 border-2 border-blue-400 mt-12 mb-12">
-						<button
-							className="absolute top-2 right-2 text-gray-400 hover:text-gray-700 text-2xl font-bold"
-							onClick={() => setShowModal(false)}
-							title="Fechar"
-						>
-							×
-						</button>
-						<h2 className="text-3xl font-bold mb-8 text-blue-600">Cadastro de Cliente</h2>
-						<form onSubmit={handleSubmit} className="space-y-4">
-							<div className="grid grid-cols-2 gap-4">
+					<div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={cancelarExclusao} />
+					<div className="relative bg-white rounded-lg shadow-2xl px-8 py-6 w-full max-w-sm mx-4 border-2 border-blue-400 flex flex-col items-center">
+						<h2 className="text-xl font-bold mb-4 text-blue-600">Confirmar exclusão</h2>
+						<p className="mb-6 text-gray-700 text-center">Tem certeza que deseja excluir este cliente?</p>
+						<div className="flex gap-4 mt-2 justify-center">
+							<button className="bg-white border border-blue-400 text-blue-600 px-6 py-2 w-32 rounded font-bold" onClick={cancelarExclusao}>Cancelar</button>
+							<button className="bg-red-600 hover:bg-red-700 text-white px-6 py-2 w-32 rounded font-bold" onClick={confirmarExclusao}>Excluir</button>
+						</div>
+					</div>
+				</div>
+			)}
+			 {showModal && (
+			 <div className="fixed inset-0 z-50 flex items-center justify-center">
+			 {/* Fundo desfocado */}
+			 <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => { setShowModal(false); limparFormCliente(); }} />
+			 {/* Formulário centralizado */}
+			 <div className="relative bg-white rounded-lg shadow-2xl px-10 py-6 w-full max-w-xl mx-4 border-2 border-blue-400 mt-12 mb-12">
+			 <button
+			 className="absolute top-2 right-2 text-gray-400 hover:text-gray-700 text-2xl font-bold"
+			 onClick={() => { setShowModal(false); limparFormCliente(); }}
+			 title="Fechar"
+			 >
+			 ×
+			 </button>
+			 <h2 className="text-3xl font-bold mb-8 text-blue-600">{editClienteId === null ? "Cadastro de Cliente" : "Alterar Cliente"}</h2>
+			 <form onSubmit={handleSubmit} className="space-y-4">
+			 <div className="grid grid-cols-2 gap-4">
 								<div className="flex flex-col col-span-2">
 									<label className="font-bold mb-1 text-blue-600">Nome</label>
 									<input className="border-2 border-blue-300 rounded px-2 py-1 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 text-black uppercase" value={nome} onChange={e => setNome(e.target.value.toUpperCase())} required placeholder="NOME COMPLETO" />
@@ -318,7 +465,7 @@ export default function ClientesPage() {
 							</div>
 							{/* Botões */}
 							<div className="flex gap-4 mt-8 justify-end">
-								<button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded font-bold">Confirmar</button>
+								 <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-2 rounded font-bold">{editClienteId === null ? "Confirmar" : "Alterar"}</button>
 								<button type="button" className="bg-white border border-blue-400 text-blue-600 px-8 py-2 rounded font-bold" onClick={() => {
 									setNome(""); setCpf(""); setCep(""); setNumero(""); setTelefone(""); setEmail(""); setCidade(""); setBairro("");
 								}}>Limpar</button>
@@ -329,13 +476,16 @@ export default function ClientesPage() {
 			)}
 
 			{/* Botão flutuante de cadastrar */}
-			<button
-				className="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg px-6 py-4 text-lg font-bold transition-colors z-50"
-				title="Cadastrar novo cliente"
-				onClick={() => setShowModal(true)}
-			>
-				Cadastrar
-			</button>
+			 {!showModal && (
+				 <button
+					 className="fixed bottom-8 right-8 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg px-6 py-4 text-lg font-bold transition-colors z-50"
+					 title="Cadastrar novo cliente"
+					 onClick={() => setShowModal(true)}
+				 >
+					 Cadastrar
+				 </button>
+			 )}
 		</div>
-	);
-}
+		</>
+		);
+	}

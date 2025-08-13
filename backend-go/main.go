@@ -27,6 +27,11 @@ func main() {
 	}
 	defer db.Close()
 
+	// Criação automática das tabelas
+	if err := CriarTabelas(); err != nil {
+		log.Fatalf("Erro ao criar tabelas: %v", err)
+	}
+
 	fmt.Println("Conexão com MySQL bem-sucedida!")
 
 	mux := http.NewServeMux()
@@ -35,8 +40,11 @@ func main() {
 		fmt.Fprint(w, `{"message": "pong"}`)
 	})
 
-	mux.HandleFunc("/api/clientes", handleClientes)
 	mux.HandleFunc("/api/clientes/", handleClienteByID)
+	mux.HandleFunc("/api/clientes", handleClientes)
+	mux.HandleFunc("/api/categorias", handleCategorias)
+	mux.HandleFunc("/api/produtos", handleProdutos)
+	mux.HandleFunc("/api/produtos/", handleProdutoByID)
 
 	fmt.Println("Servidor Go rodando em http://localhost:8080")
 	http.ListenAndServe(":8080", enableCORS(mux))
